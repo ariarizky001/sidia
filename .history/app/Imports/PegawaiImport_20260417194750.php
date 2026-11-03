@@ -1,0 +1,132 @@
+<?php
+
+namespace App\Imports;
+
+use App\Models\Pegawai;
+use Maatwebsite\Excel\Concerns\ToModel;
+use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use Maatwebsite\Excel\Concerns\WithValidation;
+use Maatwebsite\Excel\Concerns\SkipsOnFailure;
+use Maatwebsite\Excel\Validators\Failure;
+
+class PegawaiImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnFailure
+{
+    private $failures = [];
+    /**
+     * @param array $row
+     *
+     * @return \Illuminate\Database\Eloquent\Model|null
+     */
+    public function model(array $row)
+    {
+        return new Pegawai([
+            'nip'                => $row['nip'] ?? null,
+            'nama_lengkap'       => $row['nama_lengkap'] ?? null,
+            'tgl_lahir'          => $this->parseDate($row['tgl_lahir'] ?? null),
+            'pensiun'            => $this->parseDate($row['pensiun'] ?? null),
+            'bup'                => $this->parseDate($row['bup'] ?? null),
+            'golongan'           => $row['golongan'] ?? null,
+            'tmt_golongan'       => $this->parseDate($row['tmt_golongan'] ?? null),
+            'jabatan'            => $row['jabatan'] ?? null,
+            'tmt_jabatan'        => $this->parseDate($row['tmt_jabatan'] ?? null),
+            'pendidikan'         => $row['pendidikan'] ?? null,
+            'thn_lulus'          => !empty($row['thn_lulus']) ? (int)$row['thn_lulus'] : null,
+            'status_asn'         => $row['status_asn'] ?? null,
+            'status_aktif'       => $row['status_aktif'] ?? 'aktif',
+            'formasi_jabatan'    => $row['formasi_jabatan'] ?? null,
+            'unit_kerja_satu'    => $row['unit_kerja_satu'] ?? null,
+            'unit_kerja_2'       => $row['unit_kerja_2'] ?? null,
+            'unit_kerja_3'       => $row['unit_kerja_3'] ?? null,
+        ]);
+    }
+
+    /**
+     * Parse date from Excel format
+     * Support: DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, Excel serial dates
+     */
+    private function parseDate($date)
+    {
+        if (empty($date) || $date === '' || $date === 0) {
+            return null;
+        }
+
+        // If already YYYY-MM-DD format
+        if (is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return $date;
+        }
+
+        // If DD-MM-YYYY format (16-01-1984)
+        if (is_string($date) && preg_match('/^(\d{1,2})-(\d{1,2})-(\d{4})$/', $date, $matches)) {
+            return $matches[3] . '-' . str_pad($matches[2], 2, '0', STR_PAD_LEFT) . '-' . str_pad($matches[1], 2, '0', STR_PAD_LEFT);
+        }
+
+        // If DD/MM/YYYY format (01/02/2042)
+        if (is_string($date) && preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $date, $matches)) {
+            return $matches[3] . '-' . str_pad($matches[2], 2, '0', STR_PAD_LEFT) . '-' . str_pad($matches[1], 2, '0', STR_PAD_LEFT);
+        }
+
+        // If Excel serial date (numeric)
+        if (is_numeric($date) && $date > 0) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($date)->format('Y-m-d');
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Validation rules
+     */
+    public function rules(): array
+    {
+        return [
+            'nip' => 'required|string|max:50|unique:pegawais,nip',
+            'nama_lengkap' => 'required|string|max:100',
+            'tgl_lahir' => 'required|string',
+            'golongan' => 'required|string|max:10',
+            'jabatan' => 'required|string|max:100',
+            'pendidikan' => 'required|string|max:50',
+            'status_asn' => 'required|string|max:50',
+            'unit_kerja_satu' => 'required|string|max:100',
+        ];
+    }
+
+    /**
+     * Custom error messages
+     */
+    public function customValidationMessages()
+    {
+        return [
+            'nip.required' => 'NIP wajib diisi',
+            'nip.unique' => 'NIP sudah terdaftar',
+            'nama_lengkap.required' => 'Nama lengkap wajib diisi',
+            'tgl_lahir.required' => 'Tanggal lahir wajib diisi',
+            'golongan.required' => 'Golongan wajib diisi',
+            'jabatan.required' => 'Jabatan wajib diisi',
+            'pendidikan.required' => 'Pendidikan wajib diisi',
+            'status_asn.required' => 'Status ASN wajib diisi',
+            'unit_kerja_satu.required' => 'Unit kerja wajib diisi',
+        ];
+    }
+
+    /**
+     * Handle failures
+     */
+    public function onFailure(Failure ...$failures)
+    {
+        foreach ($failures as $failure) {
+            $this->failures[] = $failure;
+        }
+    }
+
+    /**
+     * Get failures
+     */
+    public function failures()
+    {
+        return $this->failures;
+    }
+}
